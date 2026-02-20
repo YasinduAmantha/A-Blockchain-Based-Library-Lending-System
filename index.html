@@ -1,0 +1,425 @@
+<!-- RUN: python -m http.server 8000 -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Library Ledger - Test Client</title>
+    <!-- <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js" type="application/javascript"></script> -->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js" type="application/javascript"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; max-width: 800px; margin: auto; }
+        .section { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 8px; }
+        input, button { padding: 10px; margin: 5px 0; }
+        button { cursor: pointer; background: #3498db; color: white; border: none; border-radius: 4px; }
+        button:disabled { background: #bdc3c7; }
+        #status { font-weight: bold; color: #e67e22; }
+    </style>
+</head>
+<body>
+
+    <h1>📚 Library Book Lending System</h1>
+    <p>Status: <span id="status">Disconnected</span></p>
+    <button id="connectBtn">Connect MetaMask</button>
+
+    <div class="section">
+        <h3>Add New Book (Librarian Only)</h3>
+        <input type="text" id="addBookId" placeholder="Book ID (e.g. 101)">
+        <input type="text" id="addBookTitle" placeholder="Book Title">
+        <button onclick="addBook()">Add to Library</button>
+    </div>
+
+    <div class="section">
+        <h3>Lend Book</h3>
+        <input type="text" id="lendBookId" placeholder="Book ID">
+        <input type="text" id="borrowerAddr" placeholder="Borrower Address (0x...)">
+        <button onclick="lendBook()">Issue Book</button>
+    </div>
+
+    <div class="section">
+        <h3>Check Availability & Return</h3>
+        <input type="text" id="checkId" placeholder="Book ID">
+        <button onclick="checkStatus()">Check Status</button>
+        <button onclick="returnBook()" style="background:#e74c3c">Mark as Returned</button>
+        <p id="resultDisplay"></p>
+    </div>
+
+    <div class="section">
+        <h3>🌍 Global Library Catalog</h3>
+        <button onclick="viewAllBooks()">Refresh Catalog</button>
+        <div id="catalogDisplay" style="margin-top:10px;">
+            <table style="width:100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background:#f2f2f2;">
+                        <th style="border:1px solid #ddd; padding:8px;">ID</th>
+                        <th style="border:1px solid #ddd; padding:8px;">Title</th>
+                        <th style="border:1px solid #ddd; padding:8px;">Availability</th>
+                    </tr>
+                </thead>
+                <tbody id="catalogBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        // const CONTRACT_ADDRESS = "0x73EFF0Ae3037f9C2104ed601A4B8cBbB1746E09a";
+        const CONTRACT_ADDRESS = "0x6382738fc95BDd86d4C356D2A8c8254450417790";
+		
+        const CONTRACT_ABI = [
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "string",
+				"name": "bookId",
+				"type": "string"
+			},
+			{
+				"indexed": false,
+				"internalType": "string",
+				"name": "title",
+				"type": "string"
+			},
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "issuer",
+				"type": "address"
+			}
+		],
+		"name": "BookAdded",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "string",
+				"name": "bookId",
+				"type": "string"
+			},
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "borrower",
+				"type": "address"
+			}
+		],
+		"name": "BookLent",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "string",
+				"name": "bookId",
+				"type": "string"
+			}
+		],
+		"name": "BookReturned",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_bookId",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "_title",
+				"type": "string"
+			}
+		],
+		"name": "addBook",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_bookId",
+				"type": "string"
+			},
+			{
+				"internalType": "address",
+				"name": "_borrower",
+				"type": "address"
+			}
+		],
+		"name": "lendBook",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_bookId",
+				"type": "string"
+			}
+		],
+		"name": "returnBook",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "allBookIds",
+		"outputs": [
+			{
+				"internalType": "string",
+				"name": "",
+				"type": "string"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "",
+				"type": "string"
+			}
+		],
+		"name": "books",
+		"outputs": [
+			{
+				"internalType": "string",
+				"name": "bookId",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "title",
+				"type": "string"
+			},
+			{
+				"internalType": "address",
+				"name": "borrower",
+				"type": "address"
+			},
+			{
+				"internalType": "bool",
+				"name": "isAvailable",
+				"type": "bool"
+			},
+			{
+				"internalType": "address",
+				"name": "issuer",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_bookId",
+				"type": "string"
+			}
+		],
+		"name": "checkAvailability",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			},
+			{
+				"internalType": "string",
+				"name": "",
+				"type": "string"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getMyIssuedBooks",
+		"outputs": [
+			{
+				"components": [
+					{
+						"internalType": "string",
+						"name": "bookId",
+						"type": "string"
+					},
+					{
+						"internalType": "string",
+						"name": "title",
+						"type": "string"
+					},
+					{
+						"internalType": "address",
+						"name": "borrower",
+						"type": "address"
+					},
+					{
+						"internalType": "bool",
+						"name": "isAvailable",
+						"type": "bool"
+					},
+					{
+						"internalType": "address",
+						"name": "issuer",
+						"type": "address"
+					}
+				],
+				"internalType": "struct Library.Book[]",
+				"name": "",
+				"type": "tuple[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]
+
+        let provider, signer, contract;
+
+        // --- CONNECT METAMASK ---
+		document.getElementById('connectBtn').onclick = async () => {
+		    if (typeof window.ethereum !== 'undefined') {
+		        try {
+		            // 1. Force MetaMask to switch to Sepolia (Chain ID: 0xaa36a7)
+		            try {
+		                await window.ethereum.request({
+		                    method: 'wallet_switchEthereumChain',
+		                    params: [{ chainId: '0xaa36a7' }], // 11155111 in hex
+		                });
+		            } catch (switchError) {
+		                // If the network isn't added to MetaMask, this would trigger
+		                alert("Please add the Sepolia network to your MetaMask.");
+		                return;
+		            }
+				
+		            // 2. Refresh the provider after the switch
+		            const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+		            provider = new ethers.providers.Web3Provider(window.ethereum);
+		            signer = provider.getSigner();
+		            contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+				
+		            // 3. Update UI
+		            const addr = accounts[0];
+		            document.getElementById('status').innerText = "Connected: " + addr.substring(0,6) + "...";
+		            document.getElementById('status').style.color = "#27ae60";
+		            document.getElementById('connectBtn').disabled = true;
+				
+		        } catch (err) {
+		            alert("Connection failed: " + err.message);
+		        }
+		    } else {
+		        alert("Please install MetaMask!");
+		    }
+		};
+
+        // --- CONTRACT INTERACTION FUNCTIONS ---
+
+        async function addBook() {
+			const { chainId } = await provider.getNetwork();
+    		if (chainId !== 11155111) {
+    		    alert("Please switch your MetaMask network to Sepolia!");
+    		    return;
+    		}
+            const id = document.getElementById('addBookId').value;
+            const title = document.getElementById('addBookTitle').value;
+            try {
+                const tx = await contract.addBook(id, title);
+                document.getElementById('status').innerText = "Mining Transaction...";
+                await tx.wait();
+                alert("Book Added Successfully!");
+                document.getElementById('status').innerText = "Connected";
+            } catch (err) { alert(err.data ? err.data.message : err.message); }
+        }
+
+        async function lendBook() {
+            const id = document.getElementById('lendBookId').value;
+            const borrower = document.getElementById('borrowerAddr').value;
+            try {
+                const tx = await contract.lendBook(id, borrower);
+                await tx.wait();
+                alert("Book Lent!");
+            } catch (err) { alert(err.message); }
+        }
+
+        async function checkStatus() {
+            const id = document.getElementById('checkId').value;
+            try {
+                const result = await contract.checkAvailability(id);
+                // result[0] is isAvailable, result[1] is Title
+                document.getElementById('resultDisplay').innerText = 
+                    `Title: ${result[1]} | Available: ${result[0]}`;
+            } catch (err) { alert("Book not found."); }
+        }
+
+        async function returnBook() {
+            const id = document.getElementById('checkId').value;
+            try {
+                const tx = await contract.returnBook(id);
+                await tx.wait();
+                alert("Book Returned!");
+            } catch (err) { alert(err.message); }
+        }
+    
+        async function viewAllBooks() {
+            if (!contract) return alert("Please connect MetaMask first!");
+
+            try {
+                const tableBody = document.getElementById('catalogBody');
+                tableBody.innerHTML = "Loading...";
+                const bookIds = [];
+                let i = 0;
+                while(true) {
+                    try {
+                        const id = await contract.allBookIds(i);
+                        bookIds.push(id);
+                        i++;
+                    } catch(e) { break; }
+                }
+            
+                tableBody.innerHTML = "";
+            
+                for (const id of bookIds) {
+                    const book = await contract.books(id);
+                    const row = `<tr>
+                        <td style="border:1px solid #ddd; padding:8px;">${book.bookId}</td>
+                        <td style="border:1px solid #ddd; padding:8px;">${book.title}</td>
+                        <td style="border:1px solid #ddd; padding:8px; font-weight:bold; color:${book.isAvailable ? '#27ae60' : '#e74c3c'}">
+                            ${book.isAvailable ? "✅ Available" : "❌ Lent Out"}
+                        </td>
+                    </tr>`;
+                    tableBody.innerHTML += row;
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Error fetching catalog: " + err.message);
+            }
+        }
+    
+    </script>
+</body>
+</html>
+

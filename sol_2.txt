@@ -1,0 +1,102 @@
+// Account:
+// 0xb7cbc8777d1c307c1e4e12375c6dcee0132d45dc : 0x73EFF0Ae3037f9C2104ed601A4B8cBbB1746E09a
+// 0x2c79566880c73e10bd61510d92a8bc08696948cb : 0x6382738fc95BDd86d4C356D2A8c8254450417790
+
+
+
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract Library {
+
+    struct Book {
+        string bookId;
+        string title;
+        address borrower;
+        bool isAvailable;
+        address issuer; // The Librarian who added the book
+    }
+
+    // Mapping from Book ID to Book details
+    mapping(string => Book) public books;
+    
+    // To keep track of all book IDs added to the system
+    string[] public allBookIds;
+
+    event BookAdded(string indexed bookId, string title, address indexed issuer);
+    event BookLent(string indexed bookId, address indexed borrower);
+    event BookReturned(string indexed bookId);
+
+    // Modifier to restrict actions to the person who registered the book
+    modifier onlyIssuer(string memory _bookId) {
+        require(books[_bookId].issuer == msg.sender, "Error: You are not the issuer of this book.");
+        _;
+    }
+
+    // 2. Add Book
+    function addBook(string memory _bookId, string memory _title) public {
+        // Ensure book ID is unique to prevent overwriting
+        require(bytes(books[_bookId].bookId).length == 0, "Error: Book ID already exists.");
+
+        books[_bookId] = Book({
+            bookId: _bookId,
+            title: _title,
+            borrower: address(0),
+            isAvailable: true,
+            issuer: msg.sender
+        });
+
+        allBookIds.push(_bookId);
+        emit BookAdded(_bookId, _title, msg.sender);
+    }
+
+    // 3. Lend Book
+    function lendBook(string memory _bookId, address _borrower) public onlyIssuer(_bookId) {
+        require(books[_bookId].isAvailable, "Error: Book is already lent out.");
+        
+        books[_bookId].isAvailable = false;
+        books[_bookId].borrower = _borrower;
+
+        emit BookLent(_bookId, _borrower);
+    }
+
+    // 4. Return Book
+    function returnBook(string memory _bookId) public onlyIssuer(_bookId) {
+        require(!books[_bookId].isAvailable, "Error: Book is already in the library.");
+
+        books[_bookId].isAvailable = true;
+        books[_bookId].borrower = address(0);
+
+        emit BookReturned(_bookId);
+    }
+
+    // 5. Query Availability (Read-only)
+    // Note: The 'public' mapping 'books' automatically creates a getter, 
+    // but this explicit function is cleaner for frontend integration.
+    function checkAvailability(string memory _bookId) public view returns (bool, string memory) {
+        return (books[_bookId].isAvailable, books[_bookId].title);
+    }
+    
+    // Custom getter to fulfill the "Issuer A sees only A's records" requirement
+    function getMyIssuedBooks() public view returns (Book[] memory) {
+        uint256 count = 0;
+        for (uint256 i = 0; i < allBookIds.length; i++) {
+            if (books[allBookIds[i]].issuer == msg.sender) {
+                count++;
+            }
+        }
+
+        Book[] memory myBooks = new Book[](count);
+        uint256 j = 0;
+        for (uint256 i = 0; i < allBookIds.length; i++) {
+            if (books[allBookIds[i]].issuer == msg.sender) {
+                myBooks[j] = books[allBookIds[i]];
+                j++;
+            }
+        }
+        return myBooks;
+    }
+}
+
+
+
